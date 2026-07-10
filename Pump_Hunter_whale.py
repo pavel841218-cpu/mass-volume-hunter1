@@ -4,11 +4,14 @@ import sys
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from aiohttp import web
 import httpx
 from aiogram import Bot
+from aiohttp import web
 
-# ========== НАСТРОЙКИ ==========
+# ========== НАСТРОЙКИ (ПОЛНАЯ АВТОМАТИКА) ==========
+# Код сам автоматически возьмет имя твоего текущего бота из системы Render!
+BOT_NAME_RENDER = os.getenv("RENDER_SERVICE_NAME", "pump-hunter-default")
+
 TELEGRAM_TOKEN = os.getenv("PUMP_BOT_TOKEN")
 CHAT_ID = os.getenv("PUMP_CHAT_ID")
 PORT = int(os.getenv("PORT", "7861"))
@@ -29,8 +32,12 @@ BINANCE_API = "https://api.binance.com/api/v3/klines"
 BINANCE_TICKER_API = "https://api.binance.com/api/v3/ticker/price"
 BINANCE_24HR_API = "https://api.binance.com/api/v3/ticker/24hr"
 
+# Автоматическая сборка URL для самопинга
+SELF_URL = f"https://{BOT_NAME_RENDER}.onrender.com"
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger("AutoMassHunter")
+
 
 class AutoVolumeMonitor:
     def __init__(self, bot: Bot):
@@ -38,7 +45,7 @@ class AutoVolumeMonitor:
         self.semaphore = asyncio.Semaphore(MAX_REQUESTS)
         self.last_alert_time: dict[str, datetime] = {}
         
-        # ДОБАВЛЕНО: Маскировка под обычный браузер Chrome, чтобы избежать ошибки 418
+        # Маскировка под обычный браузер Chrome, чтобы избежать ошибки 418
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
@@ -67,7 +74,6 @@ class AutoVolumeMonitor:
                                 "binance": item["symbol"],
                                 "name": clean
                             })
-                # Небольшая задержка между пачками запросов, чтобы не злить Binance
                 await asyncio.sleep(0.5)
             except Exception as e:
                 logger.error(f"Ошибка фильтрации объема: {e}")
@@ -80,7 +86,6 @@ class AutoVolumeMonitor:
         try:
             res = await self.client.get(BINANCE_TICKER_API)
             
-            # ДОБАВЛЕНО: Если Binance выдал 418, подождем и попробуем еще раз через 30 секунд
             if res.status_code == 418:
                 logger.warning("⚠️ Binance выдал ошибку 418 (Teapot). Ожидаем сброса лимитов 30 сек...")
                 await asyncio.sleep(30)
@@ -207,7 +212,6 @@ class AutoVolumeMonitor:
                 last_market_update = datetime.now()
 
             if WATCH_PAIRS:
-                # Проверяем пары небольшими пачками с микро-паузой в 0.3 сек, чтобы Binance не банил IP
                 for i in range(0, len(WATCH_PAIRS), MAX_REQUESTS):
                     chunk = WATCH_PAIRS[i:i+MAX_REQUESTS]
                     tasks = [self.check_pair(pair) for pair in chunk]
@@ -216,9 +220,33 @@ class AutoVolumeMonitor:
 
             await asyncio.sleep(CHECK_INTERVAL)
 
+
+# ==========================================
+# ВЕБ-СЕРВЕР И АНТИ-СОН СИСТЕМА (АВТОМАТ)
+# ==========================================
 async def web_health_check(request):
     return web.Response(text="Auto Market Volume Hunter: Operational", status=200)
 
+async def keep_alive_ping():
+    """Фоновая задача самопинга, чтобы Render не тушил бота"""
+    await asyncio.sleep(30)
+    logger.info("Анти-сон система (Самопинг) успешно активирована.")
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(SELF_URL)
+                if response.status_code == 200:
+                    logger.info("Самопинг: отправил сигнал бодрствования на Render.")
+        except Exception as ping_err:
+            logger.error(f"Ошибка выполнения самопинга: {ping_err}")
+        
+        # Обманываем таймер Render и пингуем каждые 4 минуты
+        await asyncio.sleep(240)
+
+
+# ==========================================
+# ОБНОВЛЕННЫЙ АСИНХРОННЫЙ ЗАПУСК
+# ==========================================
 async def main():
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logger.critical("PUMP_BOT_TOKEN или PUMP_CHAT_ID не заданы!")
@@ -227,14 +255,27 @@ async def main():
     bot = Bot(token=TELEGRAM_TOKEN)
     monitor = AutoVolumeMonitor(bot)
 
+    # 1. Запуск веб-сервера
     app = web.Application()
     app.router.add_get('/', web_health_check)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
+    logger.info(f"Веб-сервер успешно запущен на порту {PORT}")
 
-    await monitor.start_loop()
+    # 2. Запуск фонового сканирования рынка
+    asyncio.create_task(monitor.start_loop())
+
+    # 3. Запуск фонового самопинга для вечного онлайна
+    asyncio.create_task(keep_alive_ping())
+
+    # Держим основной процесс активным
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Бот остановлен.")
