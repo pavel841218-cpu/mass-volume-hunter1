@@ -28,9 +28,9 @@ MAX_SPREAD_PERCENT = 1.5                # Максимальный спред, �
 WATCH_PAIRS = []
 
 BINGX_API = "https://open-api.bingx.com/api/v1/market/getKline"
-BINANCE_API = "https://api.binance.com/api/v3/klines"
-BINANCE_TICKER_API = "https://api.binance.com/api/v3/ticker/price"
-BINANCE_24HR_API = "https://api.binance.com/api/v3/ticker/24hr"
+BINANCE_API = "https://api1.binance.com/api/v3/klines"
+BINANCE_TICKER_API = "https://api1.binance.com/api/v3/ticker/price"
+BINANCE_24HR_API = "https://api1.binance.com/api/v3/ticker/24hr"
 
 # Автоматическая сборка URL для самопинга
 SELF_URL = f"https://{BOT_NAME_RENDER}.onrender.com"
