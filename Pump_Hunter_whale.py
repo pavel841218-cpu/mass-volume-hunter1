@@ -16,7 +16,7 @@ PORT = int(os.getenv("PORT", "7861"))
 THRESHOLD_VOL = 3.5          # Всплеск объема (раз)
 CHECK_INTERVAL = 10          # Пауза между кругами сканирования (сек)
 MAX_REQUESTS = 3             # Одновременных запросов к биржам
-MIN_DAILY_VOL_USDT = 5_000_000  # Минимальный суточный объем на Binance
+MIN_DAILY_VOL_USDT = 2_500_000  # Минимальный суточный объем на Binance
 
 ALERT_COOLDOWN = timedelta(minutes=5)   # Повторный алерт по монете не чаще
 MAX_SPREAD_PERCENT = 1.5                # Максимальный спред, выше — арбитраж
