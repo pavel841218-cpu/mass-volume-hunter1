@@ -18,20 +18,15 @@ THRESHOLD_VOL = 1.3
 CHECK_INTERVAL = 10
 MAX_REQUESTS = 3
 
-# РАСШИРЕННЫЕ ФИЛЬТРЫ ДЛЯ МАКСИМАЛЬНОГО ОХВАТА МАРКЕТА
+# РАСШИРЕННЫЕ ФИЛЬТРЫ ДЛЯ МАКСИМАЛЬНОГО ОХВАТА МАРКЕТА БИНАНСА
 MIN_DAILY_VOL_USDT = 1_000_000  # Снизили до 1 млн $, чтобы зацепить живые монеты
 MIN_PRICE = 0.0001              # Захватываем дешевые мемкоины
 MAX_PRICE = 10.0                # Подняли планку до 10$, зайдет вся основная альта
 
 ALERT_COOLDOWN = timedelta(minutes=5)
-MAX_SPREAD_PERCENT = 1.5
 
 # Список отслеживаемых пар (заполняется динамически)
 WATCH_PAIRS = []
-
-# BingX API URL
-BINGX_API = "https://open-api.bingx.com/api/v1/market/getKline"
-BINGX_CONTRACTS_API = "https://open-api.bingx.com/api/v1/market/getContracts"
 
 # Binance API
 BINANCE_API = "https://api1.binance.com/api/v3/klines"
@@ -41,7 +36,7 @@ BINANCE_24HR_API = "https://api1.binance.com/api/v3/ticker/24hr"
 SELF_URL = f"https://{BOT_NAME_RENDER}.onrender.com"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
-logger = logging.getLogger("AutoMassHunter")
+logger = logging.getLogger("BinanceMassHunter")
 
 
 class AutoVolumeMonitor:
@@ -49,9 +44,8 @@ class AutoVolumeMonitor:
         self.bot = bot
         self.semaphore = asyncio.Semaphore(MAX_REQUESTS)
         self.last_alert_time: dict[str, datetime] = {}
-        self.bingx_symbols: set = set()  # кеш доступных пар BingX
         
-        # КРИТИЧЕСКИЙ ФИКС: Имитируем реальный чистый браузер, чтобы обходить блок 418
+        # Имитируем реальный чистый браузер, чтобы обходить блок 418
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "application/json",
@@ -64,24 +58,8 @@ class AutoVolumeMonitor:
             limits=httpx.Limits(max_connections=15, max_keepalive_connections=5)
         )
 
-    async def load_bingx_symbols(self):
-        """Загружает список всех доступных USDT-пар на BingX."""
-        try:
-            res = await self.client.get(BINGX_CONTRACTS_API)
-            if res.status_code == 200:
-                contracts = res.json().get("data", [])
-                self.bingx_symbols = {
-                    c["symbol"] for c in contracts
-                    if c.get("symbol", "").endswith("USDT") and c.get("status") == 1
-                }
-                logger.info(f"Загружено {len(self.bingx_symbols)} пар BingX")
-            else:
-                logger.error(f"Не удалось загрузить контракты BingX: {res.status_code}")
-        except Exception as e:
-            logger.error(f"Ошибка загрузки контрактов BingX: {e}")
-
     async def filter_by_volume(self, symbols: list, min_vol=MIN_DAILY_VOL_USDT):
-        """Оставляет только монеты с объёмом ≥ min_vol и присутствующие на BingX."""
+        """Оставляет только монеты с объёмом ≥ min_vol на Binance."""
         filtered = []
         # Бьем на пачки по 50 штук — это абсолютно законно для API Binance
         for i in range(0, len(symbols), 50):
@@ -95,32 +73,22 @@ class AutoVolumeMonitor:
                         quote_vol = float(item.get("quoteVolume", 0))
                         if quote_vol >= min_vol:
                             clean = item["symbol"].replace("USDT", "")
-                            bingx_sym = f"{clean}USDT"
-                            
-                            if bingx_sym in self.bingx_symbols:
-                                filtered.append({
-                                    "bingx": bingx_sym,
-                                    "binance": item["symbol"],
-                                    "name": clean
-                                })
+                            filtered.append({
+                                "binance": item["symbol"],
+                                "name": clean
+                            })
                 # Мягкая задержка между батчами, чтобы биржа спала спокойно
                 await asyncio.sleep(1.2)
             except Exception as e:
-                logger.error(f"Ошибка фильтрации: {e}")
+                logger.error(f"Ошибка фильтрации по объему: {e}")
                 await asyncio.sleep(2.0)
         return filtered
 
     async def update_market_pairs(self):
         global WATCH_PAIRS
-        logger.info("🔄 Поиск общих монет с объемом...")
+        logger.info("🔄 Поиск активных монет на Binance...")
         try:
-            # Даем серверу продышаться перед запросами
             await asyncio.sleep(2.0)
-            
-            await self.load_bingx_symbols()
-            
-            # Разделяем запросы к разным биржам паузой
-            await asyncio.sleep(1.5)
             
             res = await self.client.get(BINANCE_TICKER_API)
             if res.status_code != 200:
@@ -137,26 +105,11 @@ class AutoVolumeMonitor:
             
             await asyncio.sleep(1.0)
             WATCH_PAIRS = await self.filter_by_volume(candidates, MIN_DAILY_VOL_USDT)
-            logger.info(f"✅ Список обновлен! Найдено {len(WATCH_PAIRS)} монет (есть на обеих биржах).")
+            logger.info(f"✅ Список обновлен! Найдено {len(WATCH_PAIRS)} монет на Binance.")
             
-            # Убрали символ '#' из сообщения, чтобы не ломать ТГ
-            await self.send_alert(f"🔄 <b>Сканер гибридный запущен!</b>\nНайдено общих пар: <b>{len(WATCH_PAIRS)}</b>")
+            await self.send_alert(f"🔄 <b>Сканер рынка Binance запущен!</b>\nМониторинг монет в диапазоне: <b>{len(WATCH_PAIRS)}</b>")
         except Exception as e:
-            logger.error(f"Ошибка обновления: {e}")
-
-    async def fetch_bingx(self, symbol: str):
-        async with self.semaphore:
-            try:
-                res = await self.client.get(BINGX_API, params={
-                    "symbol": symbol,
-                    "interval": "1m",
-                    "limit": 15
-                })
-                if res.status_code == 200:
-                    return res.json().get("data", [])
-            except Exception:
-                pass
-        return []
+            logger.error(f"Ошибка обновления пар: {e}")
 
     async def fetch_binance(self, symbol: str):
         async with self.semaphore:
@@ -173,10 +126,7 @@ class AutoVolumeMonitor:
         return []
 
     async def check_pair(self, pair: dict):
-        bx_data, bn_data = await asyncio.gather(
-            self.fetch_bingx(pair["bingx"]),
-            self.fetch_binance(pair["binance"])
-        )
+        bn_data = await self.fetch_binance(pair["binance"])
         
         if not bn_data or len(bn_data) < 12:
             return
@@ -186,15 +136,7 @@ class AutoVolumeMonitor:
             bn_avg = sum(float(k[5]) for k in bn_data[-11:-1]) / 10
             bn_ratio = float(bn_latest[5]) / bn_avg if bn_avg > 0 else 0
 
-            bx_ratio = 0.0
-            bx_str = "Нет данных"
-            if bx_data and len(bx_data) >= 12:
-                bx_latest = bx_data[-1]
-                bx_avg = sum(float(k[5]) for k in bx_data[-11:-1]) / 10
-                bx_ratio = float(bx_latest[5]) / bx_avg if bx_avg > 0 else 0
-                bx_str = f"x{bx_ratio:.2f}"
-
-            if bn_ratio >= THRESHOLD_VOL or (bx_ratio >= THRESHOLD_VOL and bx_ratio > 0):
+            if bn_ratio >= THRESHOLD_VOL:
                 now = datetime.now()
                 if self.last_alert_time.get(pair["name"]) and \
                    (now - self.last_alert_time[pair["name"]]) < ALERT_COOLDOWN:
@@ -203,8 +145,8 @@ class AutoVolumeMonitor:
                 self.last_alert_time[pair["name"]] = now
                 msg = (
                     f"🎯 <b>ВСПЛЕСК ОБЪЕМА [{pair['name']}]</b>\n"
-                    f"Binance: <b>x{bn_ratio:.2f}</b>\n"
-                    f"BingX: <b>{bx_str}</b>\n"
+                    f"Биржа: <b>Binance Spot</b>\n"
+                    f"Увеличение: <b>x{bn_ratio:.2f}</b>\n"
                     f"🕒 {now.strftime('%H:%M:%S')}"
                 )
                 await self.send_alert(msg)
@@ -218,10 +160,9 @@ class AutoVolumeMonitor:
             logger.error(f"Ошибка отправки в Telegram: {e}")
 
     async def start_loop(self):
-        # Даем Рендеру полностью поднять сетевой интерфейс при старте
         await asyncio.sleep(5.0)
         await self.update_market_pairs()
-        logger.info("🚀 Мониторинг запущен")
+        logger.info("🚀 Мониторинг Binance запущен")
         last_market_update = datetime.now()
         while True:
             if datetime.now() - last_market_update > timedelta(hours=1):
@@ -232,7 +173,7 @@ class AutoVolumeMonitor:
                 for i in range(0, len(WATCH_PAIRS), MAX_REQUESTS):
                     chunk = WATCH_PAIRS[i:i+MAX_REQUESTS]
                     await asyncio.gather(*[self.check_pair(p) for p in chunk])
-                    await asyncio.sleep(0.4)  # Безопасный шаг между итерациями
+                    await asyncio.sleep(0.4)
 
             await asyncio.sleep(CHECK_INTERVAL)
 
