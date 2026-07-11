@@ -17,11 +17,11 @@ PORT = int(os.getenv("PORT", "7861"))
 
 # Настройки чувствительности для качественных сигналов
 THRESHOLD_VOL = 4.0             # Триггер на импульс (объём выше среднего в 4 раза)
-CHECK_INTERVAL = 15             # Проверка рынка каждые 15 секунд
-MAX_REQUESTS = 5                # Количество одновременных запросов к API
+CHECK_INTERVAL = 25             # Проверка рынка каждые 15 секунд
+MAX_REQUESTS = 2                # Количество одновременных запросов к API
 
 # Расширенные фильтры спотового рынка Binance
-MIN_DAILY_VOL_USDT = 1_000_000  # Фильтр суточного объема (от 1 млн $)
+MIN_DAILY_VOL_USDT = 1_500_000  # Фильтр суточного объема (от 1 млн $)
 MIN_PRICE = 0.0001              # Минимальная цена монеты
 MAX_PRICE = 1.0                # Максимальная цена монеты (строго до 1$)
 
@@ -32,9 +32,9 @@ BLACKLIST = {"IRISUSDT", "LUNCUSDT", "USTCUSDT"}
 WATCH_PAIRS = []
 
 # Binance API
-BINANCE_API = "https://api1.binance.com/api/v3/klines"
-BINANCE_TICKER_API = "https://api1.binance.com/api/v3/ticker/price"
-BINANCE_24HR_API = "https://api1.binance.com/api/v3/ticker/24hr"
+BINANCE_API = "https://api3.binance.com/api/v3/klines"
+BINANCE_TICKER_API = "https://api3.binance.com/api/v3/ticker/price"
+BINANCE_24HR_API = "https://api3.binance.com/api/v3/ticker/24hr"
 
 SELF_URL = f"https://{BOT_NAME_RENDER}.onrender.com"
 
@@ -209,7 +209,7 @@ class AutoVolumeMonitor:
                 for i in range(0, len(active_pairs), MAX_REQUESTS):
                     chunk = active_pairs[i:i+MAX_REQUESTS]
                     await asyncio.gather(*[self.check_pair(p) for p in chunk])
-                    await asyncio.sleep(0.4)
+                    await asyncio.sleep(0.8)
 
             await asyncio.sleep(CHECK_INTERVAL)
 
