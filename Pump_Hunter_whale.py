@@ -14,16 +14,16 @@ TELEGRAM_TOKEN = os.getenv("PUMP_BOT_TOKEN")
 CHAT_ID = os.getenv("PUMP_CHAT_ID")
 PORT = int(os.getenv("PORT", "7861"))
 
-THRESHOLD_VOL = 1.3
-CHECK_INTERVAL = 10
+THRESHOLD_VOL = 5.0
+CHECK_INTERVAL = 30
 MAX_REQUESTS = 3
 
 # РАСШИРЕННЫЕ ФИЛЬТРЫ ДЛЯ МАКСИМАЛЬНОГО ОХВАТА МАРКЕТА БИНАНСА
 MIN_DAILY_VOL_USDT = 1_000_000  # Снизили до 1 млн $, чтобы зацепить живые монеты
 MIN_PRICE = 0.0001              # Захватываем дешевые мемкоины
-MAX_PRICE = 10.0                # Подняли планку до 10$, зайдет вся основная альта
+MAX_PRICE = 1.0                # Подняли планку до 10$, зайдет вся основная альта
 
-ALERT_COOLDOWN = timedelta(minutes=5)
+ALERT_COOLDOWN = timedelta(minutes=30)
 
 # Список отслеживаемых пар (заполняется динамически)
 WATCH_PAIRS = []
