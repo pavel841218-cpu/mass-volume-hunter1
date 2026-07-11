@@ -123,7 +123,7 @@ class AutoVolumeMonitor:
             try:
                 res = await self.client.get(BINANCE_API, params={
                     "symbol": symbol,
-                    "interval": "1m",
+                    "interval": "5m",
                     "limit": 15
                 })
                 if res.status_code == 200:
