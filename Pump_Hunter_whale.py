@@ -22,11 +22,14 @@ MIN_DAILY_VOL_USDT = 2_500_000
 ALERT_COOLDOWN = timedelta(minutes=5)
 MAX_SPREAD_PERCENT = 1.5
 
+# Список отслеживаемых пар (заполняется динамически)
+WATCH_PAIRS = []
+
 # BingX API URL
 BINGX_API = "https://open-api.bingx.com/api/v1/market/getKline"
 BINGX_CONTRACTS_API = "https://open-api.bingx.com/api/v1/market/getContracts"
 
-# Binance API (используем api1 для стабильности)
+# Binance API
 BINANCE_API = "https://api1.binance.com/api/v3/klines"
 BINANCE_TICKER_API = "https://api1.binance.com/api/v3/ticker/price"
 BINANCE_24HR_API = "https://api1.binance.com/api/v3/ticker/24hr"
@@ -82,8 +85,8 @@ class AutoVolumeMonitor:
                         quote_vol = float(item.get("quoteVolume", 0))
                         if quote_vol >= min_vol:
                             clean = item["symbol"].replace("USDT", "")
-                            bingx_sym = f"{clean}USDT"   # без дефиса, как в API BingX
-                            # Проверяем, есть ли такая пара на BingX
+                            bingx_sym = f"{clean}USDT"   # без дефиса
+                            
                             if bingx_sym in self.bingx_symbols:
                                 filtered.append({
                                     "bingx": bingx_sym,
@@ -97,9 +100,8 @@ class AutoVolumeMonitor:
 
     async def update_market_pairs(self):
         global WATCH_PAIRS
-        logger.info("🔄 Поиск монет...")
+        logger.info("🔄 Поиск общих монет с объемом...")
         try:
-            # Обновляем список BingX-пар перед фильтрацией
             await self.load_bingx_symbols()
             res = await self.client.get(BINANCE_TICKER_API)
             if res.status_code != 200:
@@ -114,11 +116,12 @@ class AutoVolumeMonitor:
             ]
             WATCH_PAIRS = await self.filter_by_volume(candidates, MIN_DAILY_VOL_USDT)
             logger.info(f"✅ Список обновлен! Найдено {len(WATCH_PAIRS)} монет (есть на обеих биржах).")
+            
+            await self.send_alert(f"🔄 <b>Сканер гибридный запущен!</b>\nНайдено общих пар: <b>{len(WATCH_PAIRS)}</b>")
         except Exception as e:
             logger.error(f"Ошибка обновления: {e}")
 
     async def fetch_bingx(self, symbol: str):
-        """symbol уже в формате XPLUSDT (без дефиса)."""
         async with self.semaphore:
             try:
                 res = await self.client.get(BINGX_API, params={
@@ -128,10 +131,8 @@ class AutoVolumeMonitor:
                 })
                 if res.status_code == 200:
                     return res.json().get("data", [])
-                elif res.status_code != 200:
-                    logger.warning(f"BingX {symbol} status {res.status_code}")
-            except Exception as e:
-                logger.debug(f"BingX {symbol} exception: {e}")
+            except Exception:
+                pass
         return []
 
     async def fetch_binance(self, symbol: str):
@@ -155,20 +156,30 @@ class AutoVolumeMonitor:
         )
 
         logger.info(f"🔍 {pair['name']} | BingX: {len(bx_data)} свечей, Binance: {len(bn_data)} свечей")
-        if not bx_data or not bn_data or len(bx_data) < 12 or len(bn_data) < 12:
+        
+        # КРИТИЧЕСКИЙ ФИКС: Теперь для работы достаточно только данных от Binance
+        if not bn_data or len(bn_data) < 12:
             return
 
         try:
-            bx_latest, bn_latest = bx_data[-1], bn_data[-1]
-            bx_avg = sum(float(k[5]) for k in bx_data[-11:-1]) / 10
+            # Считаем Binance
+            bn_latest = bn_data[-1]
             bn_avg = sum(float(k[5]) for k in bn_data[-11:-1]) / 10
-
-            bx_ratio = float(bx_latest[5]) / bx_avg if bx_avg > 0 else 0
             bn_ratio = float(bn_latest[5]) / bn_avg if bn_avg > 0 else 0
 
-            logger.info(f"📊 {pair['name']} | BingX: x{bx_ratio:.2f}, Binance: x{bn_ratio:.2f}")
+            # Считаем BingX (только если он прислал данные)
+            bx_ratio = 0.0
+            bx_str = "Нет данных"
+            if bx_data and len(bx_data) >= 12:
+                bx_latest = bx_data[-1]
+                bx_avg = sum(float(k[5]) for k in bx_data[-11:-1]) / 10
+                bx_ratio = float(bx_latest[5]) / bx_avg if bx_avg > 0 else 0
+                bx_str = f"x{bx_ratio:.2f}"
 
-            if bx_ratio >= THRESHOLD_VOL or bn_ratio >= THRESHOLD_VOL:
+            logger.info(f"📊 {pair['name']} | BingX: {bx_str}, Binance: x{bn_ratio:.2f}")
+
+            # Сигнал срабатывает, если ХОТЯ БЫ ОДНА биржа зафиксировала всплеск объема
+            if bn_ratio >= THRESHOLD_VOL or (bx_ratio >= THRESHOLD_VOL and bx_ratio > 0):
                 now = datetime.now()
                 if self.last_alert_time.get(pair["name"]) and \
                    (now - self.last_alert_time[pair["name"]]) < ALERT_COOLDOWN:
@@ -176,8 +187,9 @@ class AutoVolumeMonitor:
 
                 self.last_alert_time[pair["name"]] = now
                 msg = (
-                    f"🎯 <b>ВСПЛЕСК [{pair['name']}]</b>\n"
-                    f"BingX: x{bx_ratio:.2f} | Binance: x{bn_ratio:.2f}\n"
+                    f"🎯 <b>ВСПЛЕСК ОБЪЕМА [{pair['name']}]</b>\n"
+                    f"Binance: <b>x{bn_ratio:.2f}</b>\n"
+                    f"BingX: <b>{bx_str}</b>\n"
                     f"🕒 {now.strftime('%H:%M:%S')}"
                 )
                 await self.send_alert(msg)
@@ -195,7 +207,6 @@ class AutoVolumeMonitor:
         logger.info("🚀 Мониторинг запущен")
         last_market_update = datetime.now()
         while True:
-            # Обновляем рынок раз в час
             if datetime.now() - last_market_update > timedelta(hours=1):
                 await self.update_market_pairs()
                 last_market_update = datetime.now()
@@ -214,7 +225,6 @@ async def web_health_check(request):
     return web.Response(text="OK")
 
 async def keep_alive_ping():
-    """Фоновый самопинг, чтобы Render не усыпил сервис."""
     await asyncio.sleep(30)
     logger.info("Запущен самопинг каждые 4 минуты")
     while True:
@@ -236,7 +246,6 @@ async def main():
     bot = Bot(token=TELEGRAM_TOKEN)
     monitor = AutoVolumeMonitor(bot)
 
-    # Веб-сервер
     app = web.Application()
     app.router.add_get('/', web_health_check)
     runner = web.AppRunner(app)
@@ -245,12 +254,9 @@ async def main():
     await site.start()
     logger.info(f"Веб-сервер на порту {PORT}")
 
-    # Запускаем мониторинг
     asyncio.create_task(monitor.start_loop())
-    # Запускаем самопинг
     asyncio.create_task(keep_alive_ping())
 
-    # Бесконечное ожидание
     while True:
         await asyncio.sleep(3600)
 
