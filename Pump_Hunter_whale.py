@@ -16,7 +16,7 @@ TELEGRAM_TOKEN = os.getenv("PUMP_BOT_TOKEN")
 CHAT_ID = os.getenv("PUMP_CHAT_ID")
 PORT = int(os.getenv("PORT", "7861"))
 
-THRESHOLD_VOL = 3.5          # Всплеск объема (раз)
+THRESHOLD_VOL = 1.3          # Всплеск объема (раз)
 CHECK_INTERVAL = 10          # Пауза между кругами сканирования (сек)
 MAX_REQUESTS = 3             # Одновременных запросов к биржам
 MIN_DAILY_VOL_USDT = 2_500_000  # Минимальный суточный объем на Binance
