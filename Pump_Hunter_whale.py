@@ -17,7 +17,11 @@ PORT = int(os.getenv("PORT", "7861"))
 THRESHOLD_VOL = 1.3
 CHECK_INTERVAL = 10
 MAX_REQUESTS = 3
-MIN_DAILY_VOL_USDT = 2_500_000
+
+# РАСШИРЕННЫЕ ФИЛЬТРЫ: Больше монет, больше сигналов!
+MIN_DAILY_VOL_USDT = 1_000_000  # Снизили до 1 млн $
+MIN_PRICE = 0.0001              # Захватываем супер-дешевые мемкоины
+MAX_PRICE = 10.0                # Подняли планку до 10$, зайдет куча топов
 
 ALERT_COOLDOWN = timedelta(minutes=5)
 MAX_SPREAD_PERCENT = 1.5
@@ -111,7 +115,7 @@ class AutoVolumeMonitor:
             candidates = [
                 t["symbol"] for t in all_tickers
                 if t["symbol"].endswith("USDT")
-                and 0.01 <= float(t["price"]) <= 1.0
+                and MIN_PRICE <= float(t["price"]) <= MAX_PRICE
                 and not any(x in t["symbol"] for x in ["UP", "DOWN", "BUSD", "EUR"])
             ]
             WATCH_PAIRS = await self.filter_by_volume(candidates, MIN_DAILY_VOL_USDT)
@@ -157,17 +161,14 @@ class AutoVolumeMonitor:
 
         logger.info(f"🔍 {pair['name']} | BingX: {len(bx_data)} свечей, Binance: {len(bn_data)} свечей")
         
-        # КРИТИЧЕСКИЙ ФИКС: Теперь для работы достаточно только данных от Binance
         if not bn_data or len(bn_data) < 12:
             return
 
         try:
-            # Считаем Binance
             bn_latest = bn_data[-1]
             bn_avg = sum(float(k[5]) for k in bn_data[-11:-1]) / 10
             bn_ratio = float(bn_latest[5]) / bn_avg if bn_avg > 0 else 0
 
-            # Считаем BingX (только если он прислал данные)
             bx_ratio = 0.0
             bx_str = "Нет данных"
             if bx_data and len(bx_data) >= 12:
@@ -178,7 +179,6 @@ class AutoVolumeMonitor:
 
             logger.info(f"📊 {pair['name']} | BingX: {bx_str}, Binance: x{bn_ratio:.2f}")
 
-            # Сигнал срабатывает, если ХОТЯ БЫ ОДНА биржа зафиксировала всплеск объема
             if bn_ratio >= THRESHOLD_VOL or (bx_ratio >= THRESHOLD_VOL and bx_ratio > 0):
                 now = datetime.now()
                 if self.last_alert_time.get(pair["name"]) and \
