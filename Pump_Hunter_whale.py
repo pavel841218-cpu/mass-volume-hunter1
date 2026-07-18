@@ -32,9 +32,9 @@ BLACKLIST = {"IRISUSDT", "LUNCUSDT", "USTCUSDT"}
 WATCH_PAIRS = []
 
 # Binance API
-BINANCE_API = "https://api3.binance.com/api/v3/klines"
-BINANCE_TICKER_API = "https://api3.binance.com/api/v3/ticker/price"
-BINANCE_24HR_API = "https://api3.binance.com/api/v3/ticker/24hr"
+BINANCE_API = "https://api.binance.com/api/v3/klines"
+BINANCE_TICKER_API = "https://api.binance.com/api/v3/ticker/price"
+BINANCE_24HR_API = "https://api.binance.com/api/v3/ticker/24hr"
 
 SELF_URL = f"https://{BOT_NAME_RENDER}.onrender.com"
 
