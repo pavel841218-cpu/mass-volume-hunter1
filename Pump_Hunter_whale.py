@@ -289,8 +289,8 @@ async def scanner_loop():
             await bot.send_message(
                 chat_id=CHAT_ID,
                 text="🔄 <b>Сканер BingX 2in1 Запущен!</b>\n\n"
-                     "🟢 <b>Режим 1:</b> Пробой из накопления (<4%)\n"
-                     "🚀 <b>Режим 2:</b> Ловец Ракет (>+4% роста, объем x3.5+)",
+                     "🟢 <b>Режим 1:</b> Пробой из накопления (4%)\n"
+                     "🚀 <b>Режим 2:</b> Ловец Ракет (+4% роста, объем x3.5+)",
                 parse_mode="HTML"
             )
         except Exception as e:
