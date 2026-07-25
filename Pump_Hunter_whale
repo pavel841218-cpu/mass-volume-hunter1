@@ -31,7 +31,7 @@ MAX_COIN_PRICE = 1000.0
 
 # Контекст (1H) — сглажены условия
 ACCUMULATION_HOURS = 6
-MAX_ACCUMULATION_RANGE_PCT = 4.2       # Расширено с 3.5 до 4.2% для охвата ракет
+MAX_ACCUMULATION_RANGE_PCT = 5.0       # Расширено с 3.5 до 5.0% для охвата ракет
 MAX_ACCUMULATION_VOLUME_SPIKE = 3.0    # Чуть мягче к микро-всплескам во флэте
 
 # Детектор импульса (5M)
