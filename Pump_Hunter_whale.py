@@ -451,27 +451,24 @@ async def send_signal_message(bot, symbol, data):
 
 
 # ===== 🧪 БЛОК АВТОМАТИЧЕСКОГО БЭКТЕСТА В TELEGRAM =====
-async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-USDT"]):
+async def run_history_backtest(bot, test_symbols=["BTC-USDT", "ETH-USDT", "SOL-USDT", "DOGE-USDT", "UB-USDT"]):
     logging.info("🧪 Запуск Бэктеста по истории...")
     
-    # 1. Отправляем проверочное сообщение, чтобы убедиться, что связь с Telegram работает
     try:
-        await bot.send_message(chat_id=CHAT_ID, text="⏳ **Запуск бэктеста по истории (40 часов)...**", parse_mode="Markdown")
+        await bot.send_message(chat_id=CHAT_ID, text="⏳ **Запуск тестового сканирования истории (5 монет)...**")
     except Exception as e:
-        logging.error(f" Ошибка отправки стартового сообщения: {e}")
+        logging.error(f"Ошибка отправки сообщения: {e}")
 
     async with aiohttp.ClientSession() as session:
         for symbol in test_symbols:
             klines = await fetch_klines(session, symbol, "5m", limit=500)
-            if not klines:
+            if not klines or len(klines) < 50:
                 continue
 
             signals_count = 0
             for i in range(40, len(klines)):
                 sub_klines = klines[:i+1]
                 closes = [float(k["close"]) for k in sub_klines]
-                highs = [float(k["high"]) for k in sub_klines]
-                lows = [float(k["low"]) for k in sub_klines]
                 opens = [float(k["open"]) for k in sub_klines]
                 volumes = [float(k["volume"]) * float(k["close"]) for k in sub_klines]
                 
@@ -486,37 +483,30 @@ async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-
                 prev_vols = volumes[-21:-1]
                 avg_vol = np.mean(prev_vols) if len(prev_vols) > 0 else 1.0
 
-                # Мягкое сжатие ATR (до 1.5% для бэктеста)
-                ranges_10 = (np.array(highs[-11:-1]) - np.array(lows[-11:-1])) / np.array(closes[-11:-1])
-                avg_compression = np.mean(ranges_10)
-
-                # Поиск паттернов со дна
-                if (avg_compression <= 0.015 and 
-                    curr_body >= (avg_body * 1.8) and 
-                    volumes[-1] >= (avg_vol * 1.5)):
-                    
+                # Условие: импульсная свеча (тело x1.8 и объем x1.8)
+                if curr_body >= (avg_body * 1.8) and volumes[-1] >= (avg_vol * 1.8):
                     signals_count += 1
                     price = curr_close
                     time_str = datetime.fromtimestamp(int(sub_klines[-1]['time'])/1000).strftime('%d.%m %H:%M')
                     
                     msg = (
-                        f"🧪 БЭКТЕСТ: {symbol}\n"
-                        f"🕒 Время: {time_str} | Вход: ${format_price(price)}\n"
-                        f"• Сжатие: {round(avg_compression * 100, 2)}%\n"
-                        f"• Тело: x{round(curr_body/avg_body, 1)} | Объем: x{round(volumes[-1]/avg_vol, 1)}"
+                        f"🧪 **БЭКТЕСТ (Найдена точка): {symbol}**\n"
+                        f"🕒 Время: **{time_str}** | Цена: **${format_price(price)}**\n"
+                        f"• Рост тела свечи: **x{round(curr_body/avg_body, 1)}**\n"
+                        f"• Всплеск объема: **x{round(volumes[-1]/avg_vol, 1)}**"
                     )
                     try:
-                        # Отправка без Markdown, чтобы исключить ошибки синтаксиса
                         await bot.send_message(chat_id=CHAT_ID, text=msg)
                         await asyncio.sleep(0.5)
                     except Exception as e:
-                        logging.error(f" Ошибка отправки сигнала бэктеста: {e}")
+                        logging.error(f"Ошибка отправки бэктеста: {e}")
 
             if signals_count == 0:
                 try:
-                    await bot.send_message(chat_id=CHAT_ID, text=f"🧪 Бэктест {symbol}: точек входа за 40ч не найдено.")
+                    await bot.send_message(chat_id=CHAT_ID, text=f"🧪 {symbol}: импульсов за 40ч не найдено.")
                 except Exception:
                     pass
+
 
 
 
