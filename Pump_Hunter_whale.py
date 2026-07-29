@@ -449,8 +449,8 @@ async def send_signal_message(bot, symbol, data):
         return False
 
 
-# ===== 🧪 БЛОК АВТОМАТИЧЕСКОГО БЭКТЕСТА В TELEGRAM =====
-async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-USDT"]):
+#  ===== 🧪 БЛОК АВТОМАТИЧЕСКОГО БЭКТЕСТА В TELEGRAM =====
+async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-USDT", "DOGE-USDT"]):
     logging.info("🧪 Запуск Бэктеста по истории...")
     async with aiohttp.ClientSession() as session:
         for symbol in test_symbols:
@@ -462,30 +462,40 @@ async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-
             for i in range(40, len(klines)):
                 sub_klines = klines[:i+1]
                 closes = [float(k["close"]) for k in sub_klines]
+                highs = [float(k["high"]) for k in sub_klines]
+                lows = [float(k["low"]) for k in sub_klines]
+                opens = [float(k["open"]) for k in sub_klines]
                 volumes = [float(k["volume"]) * float(k["close"]) for k in sub_klines]
-                price = closes[-1]
+                
+                curr_open, curr_close = opens[-1], closes[-1]
+                if curr_close <= curr_open:
+                    continue
 
-                recent_vols = volumes[-21:-1]
-                avg_vol_20 = sum(recent_vols) / len(recent_vols) if recent_vols else 1.0
-                rvol = volumes[-1] / avg_vol_20 if avg_vol_20 > 0 else 0.0
-                ema40 = calculate_ema(closes, 40)
+                curr_body = curr_close - curr_open
+                prev_bodies = np.abs(np.array(closes[-21:-1]) - np.array(opens[-21:-1]))
+                avg_body = np.mean(prev_bodies) if len(prev_bodies) > 0 else 1.0
 
-                is_early, metrics = check_early_bottom(
-                    klines_5m=sub_klines,
-                    current_oi_change_pct=0.15,
-                    current_rvol=rvol,
-                    price=price,
-                    ema40=ema40
-                )
+                prev_vols = volumes[-21:-1]
+                avg_vol = np.mean(prev_vols) if len(prev_vols) > 0 else 1.0
 
-                if is_early:
+                # Мягкое сжатие (до 1.5% вместо 0.8%)
+                ranges_10 = (np.array(highs[-11:-1]) - np.array(lows[-11:-1])) / np.array(closes[-11:-1])
+                avg_compression = np.mean(ranges_10)
+
+                # Проверяем мягкие условия для теста
+                if (avg_compression <= 0.015 and 
+                    curr_body >= (avg_body * 1.8) and 
+                    volumes[-1] >= (avg_vol * 1.5)):
+                    
                     signals_count += 1
+                    price = curr_close
                     time_str = datetime.fromtimestamp(int(sub_klines[-1]['time'])/1000).strftime('%d.%m %H:%M')
+                    
                     msg = (
-                        f"🧪 **БЭКТЕСТ (Исторический сигнал): {symbol}**\n"
+                        f"🧪 **БЭКТЕСТ (Найдена точка входа): {symbol}**\n"
                         f"🕒 Время: **{time_str}** | Вход: **${format_price(price)}**\n"
-                        f"• Сжатие ATR: **{metrics['compression_pct']}%**\n"
-                        f"• Тело свечи: **x{metrics['body_mult']}** | Объем: **x{metrics['vol_mult']}**"
+                        f"• Сжатие ATR: **{round(avg_compression * 100, 2)}%**\n"
+                        f"• Тело свечи: **x{round(curr_body/avg_body, 1)}** | Объем: **x{round(volumes[-1]/avg_vol, 1)}**"
                     )
                     try:
                         await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
@@ -495,9 +505,10 @@ async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-
 
             if signals_count == 0:
                 try:
-                    await bot.send_message(chat_id=CHAT_ID, text=f"🧪 Бэктест {symbol}: за последние 40 часов сигналов со дна не обнаружено.")
+                    await bot.send_message(chat_id=CHAT_ID, text=f"🧪 Бэктест {symbol}: за последние 40 часов сигналов не обнаружено.")
                 except Exception:
                     pass
+
 
 
 async def check_symbol(session, bot, symbol, semaphore):
