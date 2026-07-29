@@ -577,3 +577,52 @@ if __name__ == "__main__":
         asyncio.run(run_all())
     except KeyboardInterrupt:
         logging.info("Сканер остановлен")
+# ==========================================
+# 🧪 БЛОК БЭКТЕСТА (ДЛЯ ПРОВЕРКИ НА ИСТОРИИ)
+# ==========================================
+async def test_on_history(symbol="UB-USDT", days=3):
+    print(f"\n🔎 Запуск проверки вашего кода на истории {symbol} за последние {days} дня(ей)...")
+    async with aiohttp.ClientSession() as session:
+        # Запрашиваем 500 свечей по 5 минут (~42 часа истории)
+        klines = await fetch_klines(session, symbol, "5m", limit=500)
+        if not klines:
+            print("❌ Не удалось получить историю свечей")
+            return
+
+        print(f"📊 Загружено {len(klines)} свечей. Начинаем пошаговую симуляцию...\n" + "="*60)
+        signals_found = 0
+
+        # Пошагово передаем кусочки истории в вашу функцию check_early_bottom
+        for i in range(40, len(klines)):
+            sub_klines = klines[:i+1]
+            closes = [float(k["close"]) for k in sub_klines]
+            volumes = [float(k["volume"]) * float(k["close"]) for k in sub_klines]
+            price = closes[-1]
+
+            recent_vols = volumes[-21:-1]
+            avg_vol_20 = sum(recent_vols) / len(recent_vols) if recent_vols else 1.0
+            rvol = volumes[-1] / avg_vol_20 if avg_vol_20 > 0 else 0.0
+            ema40 = calculate_ema(closes, 40)
+
+            # Вызываем ВАШУ функцию поиска дна
+            is_early, metrics = check_early_bottom(
+                klines_5m=sub_klines,
+                current_oi_change_pct=0.15, # Задаем тестовый приток OI
+                current_rvol=rvol,
+                price=price,
+                ema40=ema40
+            )
+
+            if is_early:
+                signals_found += 1
+                time_str = datetime.fromtimestamp(int(sub_klines[-1]['time'])/1000).strftime('%Y-%m-%d %H:%M')
+                print(f"🎯 [СИГНАЛ НАЙДЕН!] Время: {time_str} | Цена входа: ${price}")
+                print(f"   ├─ Сжатие ATR: {metrics['compression_pct']}%")
+                print(f"   ├─ Импульс тела: x{metrics['body_mult']}")
+                print(f"   └─ Всплеск объема: x{metrics['vol_mult']}\n")
+
+        print("="*60)
+        print(f"✅ Проверка завершена. Найдено сигналов со дна: {signals_found}\n")
+
+# Раскомментируйте строчку ниже для запуска бэктеста вместо live-бота:
+# asyncio.run(test_on_history("UB-USDT"))
