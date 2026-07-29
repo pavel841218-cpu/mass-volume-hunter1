@@ -449,9 +449,17 @@ async def send_signal_message(bot, symbol, data):
         return False
 
 
-#  ===== 🧪 БЛОК АВТОМАТИЧЕСКОГО БЭКТЕСТА В TELEGRAM =====
-async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-USDT", "DOGE-USDT"]):
+
+# ===== 🧪 БЛОК АВТОМАТИЧЕСКОГО БЭКТЕСТА В TELEGRAM =====
+async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-USDT"]):
     logging.info("🧪 Запуск Бэктеста по истории...")
+    
+    # 1. Отправляем проверочное сообщение, чтобы убедиться, что связь с Telegram работает
+    try:
+        await bot.send_message(chat_id=CHAT_ID, text="⏳ **Запуск бэктеста по истории (40 часов)...**", parse_mode="Markdown")
+    except Exception as e:
+        logging.error(f" Ошибка отправки стартового сообщения: {e}")
+
     async with aiohttp.ClientSession() as session:
         for symbol in test_symbols:
             klines = await fetch_klines(session, symbol, "5m", limit=500)
@@ -478,11 +486,11 @@ async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-
                 prev_vols = volumes[-21:-1]
                 avg_vol = np.mean(prev_vols) if len(prev_vols) > 0 else 1.0
 
-                # Мягкое сжатие (до 1.5% вместо 0.8%)
+                # Мягкое сжатие ATR (до 1.5% для бэктеста)
                 ranges_10 = (np.array(highs[-11:-1]) - np.array(lows[-11:-1])) / np.array(closes[-11:-1])
                 avg_compression = np.mean(ranges_10)
 
-                # Проверяем мягкие условия для теста
+                # Поиск паттернов со дна
                 if (avg_compression <= 0.015 and 
                     curr_body >= (avg_body * 1.8) and 
                     volumes[-1] >= (avg_vol * 1.5)):
@@ -492,20 +500,21 @@ async def run_history_backtest(bot, test_symbols=["UB-USDT", "COTI-USDT", "ONUS-
                     time_str = datetime.fromtimestamp(int(sub_klines[-1]['time'])/1000).strftime('%d.%m %H:%M')
                     
                     msg = (
-                        f"🧪 **БЭКТЕСТ (Найдена точка входа): {symbol}**\n"
-                        f"🕒 Время: **{time_str}** | Вход: **${format_price(price)}**\n"
-                        f"• Сжатие ATR: **{round(avg_compression * 100, 2)}%**\n"
-                        f"• Тело свечи: **x{round(curr_body/avg_body, 1)}** | Объем: **x{round(volumes[-1]/avg_vol, 1)}**"
+                        f"🧪 БЭКТЕСТ: {symbol}\n"
+                        f"🕒 Время: {time_str} | Вход: ${format_price(price)}\n"
+                        f"• Сжатие: {round(avg_compression * 100, 2)}%\n"
+                        f"• Тело: x{round(curr_body/avg_body, 1)} | Объем: x{round(volumes[-1]/avg_vol, 1)}"
                     )
                     try:
-                        await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
-                        await asyncio.sleep(1)
+                        # Отправка без Markdown, чтобы исключить ошибки синтаксиса
+                        await bot.send_message(chat_id=CHAT_ID, text=msg)
+                        await asyncio.sleep(0.5)
                     except Exception as e:
-                        logging.error(f"Ошибка отправки бэктеста: {e}")
+                        logging.error(f" Ошибка отправки сигнала бэктеста: {e}")
 
             if signals_count == 0:
                 try:
-                    await bot.send_message(chat_id=CHAT_ID, text=f"🧪 Бэктест {symbol}: за последние 40 часов сигналов не обнаружено.")
+                    await bot.send_message(chat_id=CHAT_ID, text=f"🧪 Бэктест {symbol}: точек входа за 40ч не найдено.")
                 except Exception:
                     pass
 
